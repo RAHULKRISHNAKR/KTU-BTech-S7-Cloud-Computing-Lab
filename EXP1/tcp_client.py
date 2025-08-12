@@ -1,45 +1,22 @@
 import socket
-import struct
 
-SERVER_HOST = '127.0.0.1'  # adjust if server is remote
-SERVER_PORT = 5000
+def start_client(host='127.0.0.1', port=65432):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect((host, port))
+        print(f"Connected to server {host}:{port}")
+        while True:
+            message = input("Enter message to send to server (type 'exit' to quit): ")
+            if message.lower() == 'exit':
+                print("Closing connection.")
+                break
+            s.sendall(message.encode())
+            
+            data = s.recv(1024)
+            if not data:
+                print("Connection closed by server.")
+                break
+            print(f"Server says: {data.decode()}")
 
-def send_message(sock: socket.socket, data: bytes):
-    length = struct.pack('>I', len(data))
-    sock.sendall(length + data)
+if __name__ == "__main__":
+    start_client()
 
-def recv_exact(sock: socket.socket, n: int) -> bytes:
-    buf = b''
-    while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
-        if not chunk:
-            raise ConnectionError("Server closed connection")
-        buf += chunk
-    return buf
-
-def receive_message(sock: socket.socket) -> bytes:
-    header = recv_exact(sock, 4)
-    (length,) = struct.unpack('>I', header)
-    if length == 0:
-        return b''
-    return recv_exact(sock, length)
-
-def main():
-    with socket.create_connection((SERVER_HOST, SERVER_PORT)) as sock:
-        print(f"Connected to server at {SERVER_HOST}:{SERVER_PORT}")
-        try:
-            while True:
-                msg = input("Enter message (or 'quit'): ")
-                if msg.lower() == 'quit':
-                    break
-                encoded = msg.encode('utf-8')
-                send_message(sock, encoded)
-                response = receive_message(sock)
-                print("Server replied:", response.decode('utf-8', errors='replace'))
-        except KeyboardInterrupt:
-            print("\n[.] Interrupted by user. Exiting.")
-        except Exception as e:
-            print(f"[!] Error: {e}")
-
-if __name__ == '__main__':
-    main()

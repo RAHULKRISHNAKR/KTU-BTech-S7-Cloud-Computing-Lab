@@ -1,81 +1,68 @@
 ## EXP1: TCP Client-Server Communication
 
-This experiment demonstrates how to establish client-server communication using TCP as the transport layer protocol in Python.
+This experiment provides a minimal interactive TCP echo-style application in Python.
+
+Unlike a length‑prefixed framed protocol, the current implementation sends raw UTF‑8 encoded strings up to 1024 bytes and reads them directly with `recv(1024)`.
 
 ---
 
-### Server-side Algorithm
+### Files
 
-1. **Initialize listening socket**
-   - Create a TCP socket.
-   - Set `SO_REUSEADDR` so restart doesn’t block.
-   - Bind to host/IP and port.
-   - Start listening with a backlog.
-2. **Install shutdown handlers (optional)**
-   - Capture signals (e.g., SIGINT) to gracefully close the listening socket.
-3. **Main accept loop**
-   - Accept new incoming connections and spawn a worker (thread or async task) to handle each client.
-4. **Per-client handler**
-   - Read 4 bytes for the length prefix, then the message payload.
-   - Process the message and send a response with a 4-byte length prefix.
-   - On disconnect or error, close the client socket.
-5. **Cleanup on shutdown**
-   - Close listening socket and clean up resources.
+- `tcp_server.py`: Waits for a single client, receives messages, and interactively types replies.
+- `tcp_client.py`: Connects to the server, lets the user send messages and displays server responses.
 
 ---
 
-### Client-side Algorithm
+### How It Works
 
-1. **Establish connection**
-   - Create a TCP socket and connect to the server.
-2. **Interactive message loop**
-   - Get user input, send with length prefix, and display server response.
-3. **Teardown**
-   - Close socket on quit or error.
+1. Server binds to `127.0.0.1:65432`, listens, and accepts the first incoming connection.
+2. Client connects to the same host/port.
+3. Client loop:
+   - Prompt user for input.
+   - Send message (`socket.sendall(message.encode())`).
+   - Wait for reply (`recv(1024)`).
+4. Server loop:
+   - Receive data (`recv(1024)`); when empty, client disconnected.
+   - Display client message.
+   - Prompt server operator for a reply and send it back.
+5. Either side can terminate:
+   - Client types `exit`.
+   - Server types `exit`.
 
 ---
 
-### Framing Helper Routines
+### Characteristics / Limitations
 
-- `recv_exact(sock, n)`: Receive exactly `n` bytes or treat as disconnect.
-- `send_message(sock, payload_bytes)`: Prefix with 4-byte length and send all.
-- `receive_message(sock)`: Use `recv_exact` for length and payload.
+- Single client only (no concurrency / multi‑client handling).
+- No explicit message framing (messages are limited by user entry size and `1024` byte buffer).
+- Blocking I/O (no threads / async).
+- Plain text only (UTF‑8 strings).
 
 ---
 
-### Pseudocode Summary
+### Possible Improvements
 
-#### Server
-```python
-create listening_socket
-bind(listening_socket, HOST, PORT)
-listen(listening_socket)
+- Add length‑prefixed framing for arbitrary message sizes.
+- Support multiple clients with threading or `asyncio`.
+- Add graceful shutdown signal handling.
+- Include simple protocol commands (e.g., `/quit`, `/who`).
 
-while True:
-    conn, addr = accept(listening_socket)
-    spawn_thread(handle_client, conn, addr)
+---
 
-def handle_client(conn, addr):
-    while True:
-        header = recv_exact(conn, 4)
-        if header is empty: break
-        length = unpack_big_endian(header)
-        payload = recv_exact(conn, length)
-        process payload
-        response = create_response(payload)
-        send_message(conn, response)
-    close conn
+### Quick Start
+
+Server:
+
+```
+python tcp_server.py
 ```
 
-#### Client
-```python
-conn = connect(SERVER_HOST, SERVER_PORT)
-while user not quitting:
-    input = read_user_input()
-    send_message(conn, input)
-    reply = receive_message(conn)
-    display(reply)
-close conn
+Client (in another terminal):
+
 ```
+python tcp_client.py
+```
+
+Type `exit` on either side to close the session.
 
 ---

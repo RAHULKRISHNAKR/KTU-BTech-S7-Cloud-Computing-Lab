@@ -1,56 +1,77 @@
-## EXP3: Multiuser Chat Service with TCP and GUI
+## EXP3: GUI Multiuser Chat (Work-in-Progress)
 
-This experiment implements a multiuser chat service using TCP as the transport protocol and a GUI for the client. Each chat opens in a new window, and users can chat individually with others.
-
----
-
-### Server-side Algorithm
-
-1. **Initialize**
-   - Create a TCP socket, bind to host:port, and start listening.
-   - Maintain a thread-safe map: `username -> (conn, addr)`.
-2. **Accept loop**
-   - On new connection, spawn a thread to handle it.
-3. **Register**
-   - Receive length-prefixed JSON: `{ "type": "register", "username": <name> }`.
-   - If name taken, reply with error and close; else add to map.
-4. **Broadcast user list**
-   - After registration/disconnection, send all clients `{ "type": "user_list", "users": [...] }`.
-5. **Message forwarding**
-   - In client handler, receive framed JSON. If `type=="chat"`, forward to recipient if online; else send error.
-6. **Cleanup**
-   - On disconnect or error, remove user, broadcast updated list, close socket.
+This experiment aims to implement a multiuser chat system with a Tkinter GUI for both client and (optional) server monitoring. The current code base is an *incomplete skeleton* containing placeholders and missing logic blocks that must be filled in for a functional application.
 
 ---
-
-### Client-side Algorithm (GUI)
-
-1. **Connect & register**
-   - Open TCP connection, send `{ "type": "register", "username": <your name> }` as length-prefixed JSON.
-   - Receive user list or error.
-2. **GUI setup**
-   - Show list of online users. Double-click a user to open a private chat window.
-3. **Send chat**
-   - In chat window, type message. Send as `{ "type": "chat", "to": <peer>, "from": <you>, "msg": <text> }`.
-   - Display locally as “Me: …”.
-4. **Receive loop (background thread)**
-   - Continuously read length-prefixed messages. Update user list, display incoming messages, or show errors.
-5. **Teardown**
-   - On exit or connection loss, close socket and GUI.
+### Current Status
+- `chat_client.py` and `chat_server.py` include GUI scaffolding (Tkinter windows, widgets, and layout).
+- Networking logic (socket creation, message framing, threading) is partially present or commented by implication, but many branches are empty.
+- Error handling, broadcast logic, per‑client message routing, and graceful disconnects are not yet implemented.
 
 ---
-
-### Framing Convention
-
-- Prepend every JSON message with 4-byte big-endian length.
-- Encode JSON as UTF-8.
+### Files
+- `chat_client.py`: Tkinter client with fields for server IP, port, username, message entry, and scrolling chat view. Missing actual send/receive handling in several methods.
+- `chat_server.py`: Tkinter server console showing status, connected clients, and server log. Missing core accept loop and broadcast implementation.
 
 ---
+### Intended Design (Target Behavior)
+1. Server accepts multiple TCP clients.
+2. First message from each client is a desired username.
+3. If username free, server acknowledges; else rejects and closes connection.
+4. Server maintains mapping: `username -> socket`.
+5. Messages from one client are broadcast (or privately routed, if extended) to others.
+6. GUI panes update in real time (log + clients list).
+7. Client GUI displays incoming messages and allows sending via Enter key or Send button.
 
-### Essential Safeguards
+---
+### Skeleton Gaps (Need Implementation)
+| Component | Missing Pieces |
+|-----------|----------------|
+| `chat_server.server_loop` | Accept connections loop, spawn handler threads. |
+| `chat_server.handle_client` | Username validation branch bodies; message receive loop; disconnect cleanup. |
+| `chat_server.broadcast_message` | Conditional skip + actual send + exception handling. |
+| `chat_server.stop_server` | Closing client sockets and server socket logic. |
+| `chat_client.connect_to_server` | Handling `USERNAME_TAKEN` response + socket close on failure. |
+| `chat_client.disconnect` | Sending a disconnect notice + closing socket. |
+| `chat_client.receive_messages` | Loop to `recv`, decode, and display or trigger disconnect. |
+| `chat_client.send_message` | Send encoded message over socket + local echo. |
+| `chat_client.on_closing` | Proper disconnect before window destroy. |
 
-- Thread-safe access to shared state (server’s client map).
-- Detect and handle disconnects gracefully.
-- Validate message types and required fields; reply with errors for malformed requests.
+---
+### Recommended Next Steps
+1. Define a simple protocol (e.g., plain lines or length‑prefixed JSON with keys: type/chat/username/message).
+2. Implement server accept loop with a daemon thread per client.
+3. Implement broadcast with thread‑safe access to `self.clients` (use a `threading.Lock`).
+4. Add a disconnect protocol (e.g., client sends `/quit` or closes socket; server removes entry and notifies others).
+5. Wrap all socket send/recv in try/except to handle abrupt disconnects.
+6. Update GUI elements only from main thread (use `root.after` if needed from worker threads).
+
+---
+### Example Simple Text Protocol (Suggestion)
+- Client first send: `HELLO <username>`
+- Broadcast messages: `MSG <username> <text>`
+- Server broadcast format: `MSG <username> <text>`
+- Disconnect notice: `BYE <username>`
+- Server rejection: `ERR USERNAME_TAKEN`
+
+---
+### Running (Current Prototype)
+At present, running either script will open a GUI but functionality is incomplete:
+```
+python chat_server.py
+python chat_client.py
+```
+Expect errors or no message flow until missing code is implemented.
+
+---
+### Future Enhancements
+- Private messaging windows.
+- User presence / typing indicators.
+- Message history persistence.
+- Encryption (TLS) or authentication layer.
+
+---
+### Contributing
+Focus first on completing the missing logic blocks listed under Skeleton Gaps. Test with multiple clients after stabilizing the basic broadcast path.
 
 ---

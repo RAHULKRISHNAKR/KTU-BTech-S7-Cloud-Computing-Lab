@@ -1,136 +1,91 @@
 import copy
 
-INFINITY = 1_000_000
+class DistanceVectorRouting:
+    def __init__(self, graph):
+        """
+        graph: dict of dict where graph[u][v] = cost from u to v (inf if no direct link)
+        """
+        self.graph = graph
+        self.nodes = list(graph.keys())
+        self.dist_vectors = {node: {n: float('inf') for n in self.nodes} for node in self.nodes}
+        self.next_hops = {node: {n: None for n in self.nodes} for node in self.nodes}
+        # Distance to self is 0
+        for node in self.nodes:
+            self.dist_vectors[node][node] = 0
+            for neighbor in self.graph[node]:
+                if self.graph[node][neighbor] != float('inf'):
+                    self.dist_vectors[node][neighbor] = self.graph[node][neighbor]
+                    self.next_hops[node][neighbor] = neighbor
 
-class Router:
-    def __init__(self, name, neighbors, split_horizon_poison=False):
+    def run(self, max_iterations=100):
         """
-        neighbors: dict of neighbor_name -> cost
+        Run the Distance Vector Routing algorithm until convergence or max_iterations.
+        Print each step of the algorithm.
         """
-        self.name = name
-        self.neighbors = neighbors  # direct link costs
-        self.split_horizon_poison = split_horizon_poison
+        print("\nInitial State:")
+        self.print_dist_vectors()
 
-        # distance vector: destination -> (cost, next_hop)
-        self.dv = {self.name: (0, self.name)}
-        for nbr, cost in neighbors.items():
-            self.dv[nbr] = (cost, nbr)
+        for iteration in range(max_iterations):
+            print(f"\nIteration {iteration + 1}:")
+            updated = False
+            old_dist_vectors = copy.deepcopy(self.dist_vectors)
 
-    def prepare_update_for(self, neighbor_name):
-        """
-        Prepare the vector to send to a neighbor, applying split horizon with poison reverse if enabled.
-        Returns a dict: destination -> cost advertised.
-        """
-        update = {}
-        for dest, (cost, next_hop) in self.dv.items():
-            advertised_cost = cost
-            if self.split_horizon_poison and next_hop == neighbor_name and dest != neighbor_name:
-                # poison reverse: tell neighbor the route through it is infinite
-                advertised_cost = INFINITY
-            update[dest] = advertised_cost
-        return update
+            for node in self.nodes:
+                for neighbor in self.graph[node]:
+                    if self.graph[node][neighbor] == float('inf'):
+                        continue
+                    for dest in self.nodes:
+                        if old_dist_vectors[neighbor][dest] == float('inf'):
+                            continue
+                        new_cost = self.graph[node][neighbor] + old_dist_vectors[neighbor][dest]
+                        if new_cost < self.dist_vectors[node][dest]:
+                            self.dist_vectors[node][dest] = new_cost
+                            self.next_hops[node][dest] = neighbor
+                            updated = True
 
-    def process_incoming(self, from_router, incoming_vector):
-        """
-        Bellman-Ford update using incoming vector from a neighbor.
-        incoming_vector: dict dest -> advertised cost (already processed with split horizon logic by sender)
-        Returns True if any change occurred.
-        """
-        changed = False
-        cost_to_neighbor = self.neighbors.get(from_router, INFINITY)
-        for dest, adv_cost in incoming_vector.items():
-            if dest == self.name:
-                continue  # skip self
+            self.print_dist_vectors()
 
-            new_cost = adv_cost + cost_to_neighbor
-            current_cost, current_next = self.dv.get(dest, (INFINITY, None))
-            if new_cost < current_cost:
-                self.dv[dest] = (new_cost, from_router)
-                changed = True
+            if not updated:
+                print("Converged!")
+                break
+
+    def print_dist_vectors(self):
+        print("\nRouting Tables:")
+        for node in self.nodes:
+            print(f"\nNode {node}:")
+            print("Destination | Cost | Next Hop")
+            print("-----------------------------")
+            for dest in self.nodes:
+                cost = self.dist_vectors[node][dest]
+                cost_str = "inf" if cost == float('inf') else str(cost)
+                next_hop = self.next_hops[node][dest] or "-"
+                print(f"{dest:<11} | {cost_str:<4} | {next_hop}")
+
+def get_user_input_graph():
+    num_nodes = int(input("Enter the number of nodes: "))
+    node_names = input(f"Enter the names of the {num_nodes} nodes (space-separated): ").split()
+
+    graph = {node: {} for node in node_names}
+    for node in node_names:
+        for other in node_names:
+            if node == other:
+                graph[node][other] = 0
             else:
-                # if current route uses that neighbor and its advertised cost increased, update (triggered by poisoned info)
-                if current_next == from_router and adv_cost == INFINITY and current_cost != INFINITY:
-                    # invalidate route via that neighbor
-                    self.dv[dest] = (INFINITY, None)
-                    changed = True
-        return changed
+                graph[node][other] = float('inf')
 
-    def routing_table(self):
-        """
-        Returns a copy of current routing table in readable form.
-        """
-        table = {}
-        for dest, (cost, next_hop) in self.dv.items():
-            table[dest] = (cost if cost < INFINITY else None, next_hop)
-        return table
+    print("\nEnter cost between each unique pair of nodes (undirected, enter 'inf' if no direct link):")
+    for i in range(num_nodes):
+        for j in range(i+1, num_nodes):
+            src = node_names[i]
+            dest = node_names[j]
+            cost_input = input(f"Cost between {src} and {dest}: ").strip()
+            cost = float('inf') if cost_input.lower() == 'inf' else float(cost_input)
+            graph[src][dest] = cost
+            graph[dest][src] = cost
 
-    def __str__(self):
-        lines = [f"Router {self.name} routing table:"]
-        for dest, (cost, next_hop) in sorted(self.routing_table().items()):
-            cost_str = str(cost) if cost is not None else "∞"
-            nh = next_hop if next_hop is not None else "-"
-            lines.append(f"  to {dest:>3}: cost={cost_str:>4}, next_hop={nh}")
-        return "\n".join(lines)
+    return graph
 
-
-def simulate(routers: dict, max_rounds=100):
-    """
-    routers: name -> Router instance
-    Runs synchronous rounds: each router exchanges its vector with neighbors.
-    Stops when no updates occur in a full round or max_rounds reached.
-    """
-    print("=== Starting Distance Vector Simulation ===")
-    for r in routers.values():
-        print(r)
-    print("------------------------------------------")
-
-    for round_num in range(1, max_rounds + 1):
-        print(f"\n--- Round {round_num} ---")
-        updates = {}  # router_name -> list of (from_neighbor, vector)
-        # Each router prepares what it would send to each neighbor
-        for name, router in routers.items():
-            for nbr in router.neighbors:
-                if nbr not in routers:
-                    continue  # skip if neighbor missing
-                vec = router.prepare_update_for(nbr)
-                updates.setdefault(nbr, []).append( (name, vec) )
-
-        any_change = False
-        # Deliver updates
-        for receiver_name, incoming_list in updates.items():
-            receiver = routers[receiver_name]
-            for sender_name, vector in incoming_list:
-                changed = receiver.process_incoming(sender_name, vector)
-                if changed:
-                    any_change = True
-
-        for r in routers.values():
-            print(r)
-        if not any_change:
-            print(f"\nConverged in {round_num} rounds.")
-            break
-    else:
-        print("\nReached max rounds without full convergence.")
-
-# Example usage / demonstration
 if __name__ == "__main__":
-    # Define topology: adjacency with costs
-    # A --1-- B
-    # |       |
-    # 4       2
-    # |       |
-    # C --1-- D
-    #
-    # Plus extra link A--5--D to create multiple paths.
-
-    topo = {
-        'A': {'B': 1, 'C': 4, 'D': 5},
-        'B': {'A': 1, 'D': 2},
-        'C': {'A': 4, 'D': 1},
-        'D': {'B': 2, 'C': 1, 'A': 5},
-    }
-
-    # Instantiate routers with split horizon with poison reverse enabled
-    routers = {name: Router(name, neighbors, split_horizon_poison=True) for name, neighbors in topo.items()}
-
-    simulate(routers)
+    user_graph = get_user_input_graph()
+    dvr = DistanceVectorRouting(user_graph)
+    dvr.run()

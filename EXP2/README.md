@@ -1,111 +1,71 @@
 ## EXP2: UDP Client-Server Communication
 
-This experiment demonstrates how to establish client-server communication using UDP as the transport layer protocol in Python.
+This experiment demonstrates a minimal interactive UDP request/response exchange between a single client and server using Python's `socket` library.
+
+The current implementation is simpler than a reliable UDP pattern: it does not implement sequence numbers, retries, or duplicate detection. It relies on the user to terminate the session.
 
 ---
 
-### Server-side Algorithm
+### Files
 
-1. **Setup**
-   - Create a UDP socket and bind to the desired address and port.
-   - Track processed sequence numbers to detect duplicates.
-2. **Main loop**
-   - Receive datagrams, parse as `<sequence>:<payload>`.
-   - If new sequence, process payload; always reply as `<sequence>:ACK:<payload>`.
-3. **Maintenance (optional)**
-   - Periodically purge old sequence numbers to bound memory.
+- `udp_server.py`: Receives datagrams, displays them, and lets the operator type a reply.
+- `udp_client.py`: Sends user-entered messages as individual UDP datagrams and prints server responses.
 
 ---
 
-### Client-side Algorithm
+### Protocol Overview
 
-1. **Setup**
-   - Create a UDP socket with a receive timeout.
-   - Initialize a sequence counter.
-2. **Send loop**
-   - Read user input, frame as `<seq>:<message>`, and send.
-   - Wait for acknowledgment, retry on timeout up to a limit.
-   - Increment sequence number for each message.
-3. **Teardown**
-   - Close the socket on exit.
+- Each datagram payload is a raw UTF‑8 string (no framing / headers).
+- Client sends normal text; to quit it sends the literal `DISCONNECT` (and then exits locally).
+- Server, upon receiving `DISCONNECT`, prints a notice and shuts down.
+- Either side can also type `exit` locally (server on prompt, client before sending) to terminate its process (server's `exit` stops the loop, client's `exit` stops sending).
 
 ---
 
-### Framing Convention
+### Flow
 
-- Outgoing: `<sequence_number>:<payload>` (e.g., `5:Hello Server`)
-- Reply: `<sequence_number>:ACK:<original_payload>` (e.g., `5:ACK:Hello Server`)
-
----
-
-### Assumptions
-
-1. UDP is unreliable (may drop, duplicate, or reorder packets).
-2. Server is stateless per packet except for duplicate detection.
-3. Payload fits within UDP datagram size.
-4. Messages are UTF-8 encoded.
+1. Server binds to `127.0.0.1:65432` (default) and waits for `recvfrom()`.
+2. Client sends a message with `sendto()` to the server address.
+3. Server prints the message and prompts operator for a reply; reply is sent via `sendto()` back to the *source address* of the last message.
+4. Client receives the reply with `recvfrom()` and displays it.
+5. Repeat until termination condition.
 
 ---
 
-### Failure Modes & Mitigations
+### Characteristics / Limitations
 
-- Packet loss: client retries on timeout.
-- Duplicate packets: server detects and avoids double-processing.
-- Reordering: not handled; out-of-order messages are independent.
-- Sequence number growth: implement expiry for old entries.
-- Malformed input: server skips or logs.
-
----
-
-### Extensions / Reliability Upgrades
-
-1. Reliable delivery: explicit ACKs, send window, retransmission timers.
-2. Ordering: buffer and deliver in sequence.
-3. Flow/congestion control: adjust send rate.
-4. Integrity/authentication: use HMAC/checksum.
-5. Session IDs: disambiguate clients behind NAT.
+- Stateless: server does not track multiple clients separately (would always reply to the most recent sender in this loop).
+- No sequencing / ordering guarantees (native UDP behavior).
+- No retry / timeout handling on client (client blocks waiting for a reply).
+- Manual termination using `DISCONNECT` or `exit`.
 
 ---
 
-### Pseudocode Summary
+### Potential Enhancements
 
-#### Server
-```python
-create UDP socket
-bind to HOST:PORT
-seen_sequences = empty set
+- Add timeouts and retransmission logic for basic reliability.
+- Support multiple concurrent clients (store last address per conversation or maintain a list).
+- Add simple command keywords (e.g., `/quit`).
+- Introduce sequence numbers + ACK for duplicate/loss handling (restore earlier extended design if needed).
 
-while True:
-    data, addr = recvfrom()
-    if data is empty: continue
-    parsed_seq, payload = parse(data)  # "<seq>:<payload>"
-    if parse fails: continue
-    if parsed_seq not in seen_sequences:
-        add parsed_seq to seen_sequences
-        process payload
-    reply = f"{parsed_seq}:ACK:{payload}"
-    sendto(reply, addr)
+---
+
+### Quick Start
+
+**Server:**
+```
+python udp_server.py
 ```
 
-#### Client
-```python
-create UDP socket with timeout
-seq = 1
-
-while True:
-    msg = get_user_input()
-    if msg == quit: break
-    framed = f"{seq}:{msg}"
-    for attempt in range(max_retries):
-        sendto(framed, server)
-        try:
-            reply = recvfrom()
-            display(reply)
-            break
-        except timeout:
-            if attempt == max_retries - 1:
-                report failure
-    seq += 1
+**Client (another terminal):**
 ```
+python udp_client.py
+```
+
+Enter messages; server will reply interactively.
+
+**To close:**
+- Client: type `exit` (local) or send `DISCONNECT`.
+- Server: type `exit` or wait for `DISCONNECT` message.
 
 ---
